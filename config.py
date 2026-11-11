@@ -16,9 +16,10 @@ CHAT_ID: int = int(_require("CHAT_ID"))
 BYBIT_API_KEY: str = os.getenv("BYBIT_API_KEY", "").strip()
 BYBIT_API_SECRET: str = os.getenv("BYBIT_API_SECRET", "").strip()
 
-# Пары для сетки
+# 9 пар: 7 старых + LINK и LTC для сравнения
 SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "DOGE/USDT", "GALA/USDT", "SUI/USDT"
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "DOGE/USDT", 
+    "GALA/USDT", "SUI/USDT", "LINK/USDT", "LTC/USDT"
 ]
 
 # Настройки сетки
