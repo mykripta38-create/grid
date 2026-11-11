@@ -6,10 +6,11 @@ class GridBot:
         self.symbol = symbol
         self.center_price = current_price
         self.levels = []
-        self.active_buys = {}   # Уровень: Order ID
-        self.active_sells = {}  # Уровень: Order ID
+        self.active_buys = {}      # Уровень: Order ID
+        self.active_sells = {}     # Уровень: Order ID
         self.total_profit = 0.0
-        
+        self.processed_orders = set()  # Хранилище ID ордеров, которые уже обработаны
+
     def calculate_levels(self, range_pct: float, num_levels: int):
         """Рассчитывает цены для уровней сетки."""
         lower = self.center_price * (1 - range_pct / 2)
