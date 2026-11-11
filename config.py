@@ -16,16 +16,16 @@ CHAT_ID: int = int(_require("CHAT_ID"))
 BYBIT_API_KEY: str = os.getenv("BYBIT_API_KEY", "").strip()
 BYBIT_API_SECRET: str = os.getenv("BYBIT_API_SECRET", "").strip()
 
-# Пары для сетки (лучше брать волатильные, где есть движение)
+# Пары для сетки
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "DOGE/USDT", "GALA/USDT", "SUI/USDT"
 ]
 
 # Настройки сетки
-GRID_RANGE_PCT = 0.10      # Общий диапазон сетки (10% = от -5% до +5% от текущей цены)
+GRID_RANGE_PCT = 0.20      # Общий диапазон сетки (20% = от -10% до +10%)
 GRID_LEVELS = 10           # Количество уровней (шагов) в сетке
 POSITION_SIZE_USDT = 100   # Размер одной позиции (в USDT) на один уровень
-STOP_LOSS_PCT = 0.15       # Если цена уходит за границу сетки на 15% — закрываем всё
+STOP_LOSS_PCT = 0.15       # Если цена уходит за границу сетки на 15% — предупреждение
 
-# Таймфрейм для проверки (сетка работает всегда, но проверяем раз в минуту)
+# Интервал проверки (в секундах)
 CHECK_INTERVAL = 60 
