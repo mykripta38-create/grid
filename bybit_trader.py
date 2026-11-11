@@ -23,9 +23,13 @@ class BybitTrader:
             return 0.0
 
     async def place_limit_order(self, symbol: str, side: str, amount: float, price: float):
-        """Ставит лимитный ордер (buy/sell)."""
+        """Ставит лимитный ордер (buy/sell) с округлением цены."""
         trade_symbol = f"{symbol}:USDT" if ":" not in symbol else symbol
         try:
+            # Округляем цену до шага биржи (критично для GALA и других дешевых монет)
+            price = float(self.exchange.price_to_precision(trade_symbol, price))
+            amount = float(self.exchange.amount_to_precision(trade_symbol, amount))
+
             order = await self.exchange.create_order(
                 symbol=trade_symbol,
                 type='limit',
@@ -37,7 +41,7 @@ class BybitTrader:
             logging.info(f"✅ Лимит {side} {symbol} {amount:.4f} @ {price}")
             return order
         except Exception as e:
-            logging.error(f"❌ Ошибка лимитки: {e}")
+            logging.error(f"❌ Ошибка лимитки для {symbol}: {e}")
             return None
 
     async def cancel_order(self, symbol: str, order_id: str):
