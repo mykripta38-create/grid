@@ -16,17 +16,19 @@ CHAT_ID: int = int(_require("CHAT_ID"))
 BYBIT_API_KEY: str = os.getenv("BYBIT_API_KEY", "").strip()
 BYBIT_API_SECRET: str = os.getenv("BYBIT_API_SECRET", "").strip()
 
-# 9 пар: 7 старых + LINK и LTC для сравнения
+# 7 лучших пар по результатам теста (GALA и DOGE убраны)
 SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "DOGE/USDT", 
-    "GALA/USDT", "SUI/USDT", "LINK/USDT", "LTC/USDT"
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", 
+    "SUI/USDT", "LINK/USDT", "LTC/USDT"
 ]
 
 # Настройки сетки
-GRID_RANGE_PCT = 0.20      # Общий диапазон сетки (20% = от -10% до +10%)
+GRID_RANGE_PCT = 0.20      # Общий диапазон сетки (20%)
 GRID_LEVELS = 10           # Количество уровней (шагов) в сетке
 POSITION_SIZE_USDT = 100   # Размер одной позиции (в USDT) на один уровень
-STOP_LOSS_PCT = 0.15       # Если цена уходит за границу сетки на 15% — предупреждение
+
+# Мягкий стоп (аварийная перестройка)
+SOFT_STOP_PCT = 0.20       # Если цена уходит на 20% ниже сетки — перестраиваем
 
 # Интервал проверки (в секундах)
 CHECK_INTERVAL = 60 
