@@ -1,6 +1,7 @@
 """Точка входа: python main.py (Сеточный бот)"""
 import asyncio
 import logging
+import time
 import config
 from bybit_trader import BybitTrader
 from grid_engine import GridBot
@@ -12,62 +13,51 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 async def monitor_grids(bot: Bot, trader: BybitTrader, grids: dict):
     """Следит за исполнением ордеров и ставит новые."""
+    start_time = int(time.time() * 1000)  # Время старта бота
+    
     while True:
         try:
             for symbol, grid in grids.items():
                 trade_symbol = f"{symbol}:USDT" if ":" not in symbol else symbol
                 
-                # 1. Получаем текущую цену напрямую с Bybit
+                # 1. Получаем текущую цену
                 ticker = await trader.exchange.fetch_ticker(trade_symbol)
                 current_price = ticker['last']
                 
-                # 2. Проверяем, не вышли ли за пределы сетки
+                # 2. Проверяем границы
                 lower_bound = grid.levels[0] * (1 - config.STOP_LOSS_PCT)
                 upper_bound = grid.levels[-1] * (1 + config.STOP_LOSS_PCT)
                 
                 if current_price < lower_bound or current_price > upper_bound:
-                    await bot.send_message(
-                        config.CHAT_ID, 
-                        f"⚠️ <b>{symbol}</b>: Цена вышла за пределы сетки ({current_price:.4f})! Требуется перестройка."
-                    )
+                    await bot.send_message(config.CHAT_ID, f"⚠️ <b>{symbol}</b>: Цена вышла за пределы сетки! ({current_price:.6f})")
                     continue
                 
-                # 3. Проверяем открытые ордера
-                open_orders = await trader.exchange.fetch_open_orders(trade_symbol)
-                
-                # 4. Проверяем историю закрытых ордеров (на предмет исполнения)
-                # Берем последние 20 закрытых ордеров, чтобы понять, что сработало
-                closed_orders = await trader.exchange.fetch_closed_orders(trade_symbol, limit=20)
+                # 3. Берем закрытые ордера ТОЛЬКО после старта бота
+                try:
+                    closed_orders = await trader.exchange.fetch_closed_orders(trade_symbol, limit=50, since=start_time)
+                except Exception as e:
+                    logging.error(f"Ошибка получения закрытых ордеров для {symbol}: {e}")
+                    continue
                 
                 for order in closed_orders:
-                    # Если ордер уже обработан нашим ботом, пропускаем
                     if order['id'] in grid.processed_orders:
                         continue
                     
                     if order['status'] == 'closed':
-                        # Если это была покупка — ставим продажу на уровень выше
                         if order['side'] == 'buy':
                             sell_level = grid.on_buy_filled(order['price'])
                             if sell_level:
                                 amount = order['amount']
                                 await trader.place_limit_order(symbol, 'sell', amount, sell_level)
-                                await bot.send_message(
-                                    config.CHAT_ID, 
-                                    f"✅ {symbol}: Куплено на {order['price']:.4f} → Продажа на {sell_level:.4f}"
-                                )
+                                await bot.send_message(config.CHAT_ID, f"✅ {symbol}: Куплено на {order['price']:.6f} → Продажа на {sell_level:.6f}")
                         
-                        # Если это была продажа — ставим покупку на уровень ниже
                         elif order['side'] == 'sell':
                             buy_level = grid.on_sell_filled(order['price'])
                             if buy_level:
                                 amount = order['amount']
                                 await trader.place_limit_order(symbol, 'buy', amount, buy_level)
-                                await bot.send_message(
-                                    config.CHAT_ID, 
-                                    f"✅ {symbol}: Продано на {order['price']:.4f} → Покупка на {buy_level:.4f}"
-                                )
+                                await bot.send_message(config.CHAT_ID, f"✅ {symbol}: Продано на {order['price']:.6f} → Покупка на {buy_level:.6f}")
                         
-                        # Помечаем ордер как обработанный
                         grid.processed_orders.add(order['id'])
                             
         except Exception as e:
@@ -110,7 +100,7 @@ async def main():
                     
                 await bot.send_message(
                     config.CHAT_ID, 
-                    f"🟢 <b>{symbol}</b>: Сетка создана. Диапазон: {grid.levels[0]:.4f} - {grid.levels[-1]:.4f}"
+                    f"🟢 <b>{symbol}</b>: Сетка создана. Диапазон: {grid.levels[0]:.6f} - {grid.levels[-1]:.6f}"
                 )
                 
             except Exception as e:
