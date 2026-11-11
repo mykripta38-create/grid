@@ -1,4 +1,4 @@
-"""Точка входа: python main.py (Сеточный бот)"""
+"""Точка входа: python main.py (Сеточный бот с мягким стопом)"""
 import asyncio
 import logging
 import time
@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 async def monitor_grids(bot: Bot, trader: BybitTrader, grids: dict):
     """Следит за исполнением ордеров и ставит новые."""
-    start_time = int(time.time() * 1000)  # Время старта бота
+    start_time = int(time.time() * 1000)
     
     while True:
         try:
@@ -24,19 +24,58 @@ async def monitor_grids(bot: Bot, trader: BybitTrader, grids: dict):
                 ticker = await trader.exchange.fetch_ticker(trade_symbol)
                 current_price = ticker['last']
                 
-                # 2. Проверяем границы
-                lower_bound = grid.levels[0] * (1 - config.STOP_LOSS_PCT)
-                upper_bound = grid.levels[-1] * (1 + config.STOP_LOSS_PCT)
+                # 2. ЛОГИКА МЯГКОГО СТОПА
+                soft_sl_trigger = grid.levels[0] * (1 - config.SOFT_STOP_PCT)
                 
-                if current_price < lower_bound or current_price > upper_bound:
-                    await bot.send_message(config.CHAT_ID, f"⚠️ <b>{symbol}</b>: Цена вышла за пределы сетки! ({current_price:.6f})")
+                # Если цена упала НИЖЕ нижней границы, но НЕ ДОШЛА до мягкого стопа — ставим на паузу
+                if current_price < grid.levels[0] and current_price > soft_sl_trigger:
+                    if not grid.is_paused:
+                        grid.is_paused = True
+                        await bot.send_message(
+                            config.CHAT_ID, 
+                            f"⚠️ <b>{symbol}</b>: Цена ниже сетки ({current_price:.6f}). Пауза на покупки."
+                        )
+                elif current_price >= grid.levels[0]:
+                    if grid.is_paused:
+                        grid.is_paused = False
+                        await bot.send_message(
+                            config.CHAT_ID, 
+                            f"✅ <b>{symbol}</b>: Цена вернулась в сетку. Возобновляем работу."
+                        )
+                
+                # 3. АВАРИЙНАЯ ПЕРЕСТРОЙКА (если упали ниже мягкого стопа)
+                if current_price < soft_sl_trigger:
+                    await bot.send_message(
+                        config.CHAT_ID, 
+                        f"🚨 <b>{symbol}</b>: КРИТИЧЕСКОЕ ПАДЕНИЕ! Цена ушла за мягкий стоп ({current_price:.6f}). Перестройка сетки."
+                    )
+                    # Отменяем все открытые ордера
+                    try:
+                        open_orders = await trader.exchange.fetch_open_orders(trade_symbol)
+                        for o in open_orders:
+                            try: await trader.exchange.cancel_order(o['id'], trade_symbol)
+                            except: pass
+                    except: pass
+                    
+                    # Перестраиваем сетку
+                    grid.center_price = current_price
+                    grid.calculate_levels(config.GRID_RANGE_PCT, config.GRID_LEVELS)
+                    
+                    # Ставим новые ордера
+                    for level in grid.get_buy_levels():
+                        amount = config.POSITION_SIZE_USDT / level
+                        await trader.place_limit_order(symbol, 'buy', amount, level)
+                    for level in grid.get_sell_levels():
+                        amount = config.POSITION_SIZE_USDT / level
+                        await trader.place_limit_order(symbol, 'sell', amount, level)
+                    
                     continue
                 
-                # 3. Берем закрытые ордера ТОЛЬКО после старта бота
+                # 4. ОБЫЧНАЯ РАБОТА СЕТКИ
                 try:
                     closed_orders = await trader.exchange.fetch_closed_orders(trade_symbol, limit=50, since=start_time)
                 except Exception as e:
-                    logging.error(f"Ошибка получения закрытых ордеров для {symbol}: {e}")
+                    logging.error(f"Ошибка получения закрытых ордеров: {e}")
                     continue
                 
                 for order in closed_orders:
@@ -53,7 +92,7 @@ async def monitor_grids(bot: Bot, trader: BybitTrader, grids: dict):
                         
                         elif order['side'] == 'sell':
                             buy_level = grid.on_sell_filled(order['price'])
-                            if buy_level:
+                            if buy_level and not grid.is_paused:  # Не покупаем, если на паузе
                                 amount = order['amount']
                                 await trader.place_limit_order(symbol, 'buy', amount, buy_level)
                                 await bot.send_message(config.CHAT_ID, f"✅ {symbol}: Продано на {order['price']:.6f} → Покупка на {buy_level:.6f}")
@@ -66,7 +105,7 @@ async def monitor_grids(bot: Bot, trader: BybitTrader, grids: dict):
         await asyncio.sleep(config.CHECK_INTERVAL)
 
 async def main():
-    logging.info("🚀 Запуск сеточного бота...")
+    logging.info("🚀 Запуск сеточного бота (с мягким стопом)...")
     
     bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
@@ -75,7 +114,6 @@ async def main():
     grids = {}
     
     try:
-        # 1. Инициализация сеток для всех пар
         for symbol in config.SYMBOLS:
             try:
                 trade_symbol = f"{symbol}:USDT" if ":" not in symbol else symbol
@@ -86,15 +124,11 @@ async def main():
                 grid.calculate_levels(config.GRID_RANGE_PCT, config.GRID_LEVELS)
                 grids[symbol] = grid
                 
-                # 2. Ставим начальные ордера
-                buy_levels = grid.get_buy_levels()
-                sell_levels = grid.get_sell_levels()
-                
-                for level in buy_levels:
+                for level in grid.get_buy_levels():
                     amount = config.POSITION_SIZE_USDT / level
                     await trader.place_limit_order(symbol, 'buy', amount, level)
                     
-                for level in sell_levels:
+                for level in grid.get_sell_levels():
                     amount = config.POSITION_SIZE_USDT / level
                     await trader.place_limit_order(symbol, 'sell', amount, level)
                     
@@ -106,8 +140,7 @@ async def main():
             except Exception as e:
                 logging.error(f"Ошибка инициализации {symbol}: {e}")
         
-        # 3. Запускаем мониторинг
-        await bot.send_message(config.CHAT_ID, "🚀 <b>Сеточный бот запущен!</b> Начинаю мониторинг.")
+        await bot.send_message(config.CHAT_ID, "🚀 <b>Сеточный бот запущен (с мягким стопом)!</b>")
         await monitor_grids(bot, trader, grids)
         
     finally:
